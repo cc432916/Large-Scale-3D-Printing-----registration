@@ -1,6 +1,8 @@
 import numpy as np
 from scipy.optimize import minimize
 from scipy.linalg import svd
+import matplotlib
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
@@ -52,13 +54,13 @@ def compute_transformation_matrix(p1, p2, p3):
     v1 = p2 - p1
     v2 = p3 - p1
     normal = np.cross(v1, v2)
+    Z_axis = normal / np.linalg.norm(normal)
     # 计算X轴（沿p1->p2方向）
     X_axis = v1 / np.linalg.norm(v1)
 
     # 计算Y轴（Z × X，确保右手坐标系）
     Y_axis = np.cross(Z_axis, X_axis)
     Y_axis /= np.linalg.norm(Y_axis)
-
     # 构建旋转矩阵（新坐标系基向量作为行向量）
     rotation_matrix = np.array([X_axis, Y_axis, Z_axis])
 
@@ -159,10 +161,17 @@ def evaluate_error(transformed, target):
     errors = np.linalg.norm(transformed - target, axis=1)
     return errors, np.mean(errors), np.max(errors)
 
+
 def batch_transform(T, points):
     points = np.asarray(points)
-    ones = np.ones((points.shape[0], 1))
-    points_h = np.hstack([points, ones])
+    if points.shape[1] == 3:
+        # 点是三维坐标 (x, y, z)，需要加一列1
+        points_h = np.hstack((points, np.ones((points.shape[0], 1))))
+    elif points.shape[1] == 4:
+        # 已经是齐次坐标，不需要再加
+        points_h = points
+    else:
+        raise ValueError("输入点的维度必须是3或4，当前是 %d 维" % points.shape[1])
     return (T @ points_h.T).T[:, :3]
 
 #  可视化3D路径
@@ -203,7 +212,7 @@ if __name__ == "__main__":
     path_D = read_path_from_txt(input_txt_path)
 
     # 5. 坐标变换（D → G）
-    path_G = apply_transform_to_path(path_D, T_D_to_G)
+    path_G = batch_transform(T_D_to_G, path_D)
 
     # 6. 保存转换后的路径
     save_path_to_txt(path_G, output_txt_path)
@@ -244,6 +253,9 @@ if __name__ == "__main__":
     print(f"均方误差: {mean_err * 1000:.3f} mm，最大误差: {max_err * 1000:.3f} mm")
 
     # 验证转换精度
-    transformed = batch_transform(T, src_points)
+    T_est_homo = np.eye(4)
+    T_est_homo[:3, :3] = R_est
+    T_est_homo[:3, 3] = T_est
+    transformed = batch_transform(T_est_homo, src_points)
     errors = np.linalg.norm(transformed - dst_points, axis=1)
     print("\n转换误差(mm):", np.round(errors * 1000, 4))
